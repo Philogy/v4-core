@@ -66,8 +66,9 @@ library Pool {
     /// @notice Thrown by the multi-tick donate method if
     error TooManyAmounts();
 
-    ///
     error IncorrectLiquidity();
+
+    error TickOutOfBounds();
 
     struct Slot0 {
         // the current price
@@ -467,21 +468,28 @@ library Pool {
         }
     }
 
-    /// @notice Donates below and up to the current tick, assigning the donated amounts to the
+    /// @notice Donates starting from the provided tic to the current tick, assigning the donated amounts to the
     /// initialized ticks.
-    function donateBelow(
+    function donate(
         State storage self,
         int24 tickNext,
         int24 tickSpacing,
         uint128 liquidityAtTick,
         uint256[] memory amounts0,
-        uint256[] memory amounts1
+        uint256[] memory amounts1,
+        bool below
     ) internal returns (BalanceDelta delta) {
         uint256 amounts0Length = amounts0.length;
         if (amounts0Length != amounts1.length) revert DonateAmountsLengthMismatch();
 
-        bool initialized;
         int24 tickCurrent = self.slot0.tick;
+        if (below) {
+            if (tickNext < TickMath.MIN_TICK || tickNext > tickCurrent) revert TickOutOfBounds();
+        } else {
+            if (tickNext > TickMath.MAX_TICK || tickNext < tickCurrent) revert TickOutOfBounds();
+        }
+
+        bool initialized;
 
         uint256 i = 0;
 
@@ -492,10 +500,13 @@ library Pool {
         uint256 cumulativeAmount1 = 0;
 
         while (tickNext <= tickCurrent) {
-            (tickNext, initialized) = self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, false);
+            (tickNext, initialized) = self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, below);
             if (initialized) {
                 TickInfo storage info = self.ticks[tickNext];
-                liquidityAtTick = UnsignedSignedMath.add(liquidityAtTick, info.liquidityNet);
+                // Interpret sign of net liquidity based on direction.
+                liquidityAtTick = below
+                    ? UnsignedSignedMath.add(liquidityAtTick, info.liquidityNet)
+                    : UnsignedSignedMath.sub(liquidityAtTick, info.liquidityNet);
 
                 if (i < amounts0Length) {
                     uint256 amount0 = amounts0[i];
@@ -517,6 +528,7 @@ library Pool {
                     info.feeGrowthOutside1X128 += cumulativeFeeGrowth1x128;
                 }
             }
+            if (below) tickNext--;
         }
 
         // Check if we reached the current tick without having consumed all amounts.
@@ -532,7 +544,7 @@ library Pool {
             self.feeGrowthGlobal1X128 += cumulativeFeeGrowth1x128;
         }
 
-        return toBalanceDelta(cumulativeAmount0.toInt128(), cumulativeAmount1.toInt128());
+        delta = toBalanceDelta(cumulativeAmount0.toInt128(), cumulativeAmount1.toInt128());
     }
 
     /// @notice Donates the given amount of currency0 and currency1 to the pool
