@@ -8,6 +8,7 @@ import {FullMath} from "./FullMath.sol";
 import {FixedPoint128} from "./FixedPoint128.sol";
 import {TickMath} from "./TickMath.sol";
 import {SqrtPriceMath} from "./SqrtPriceMath.sol";
+import {UnsignedSignedMath} from "./UnsignedSignedMath.sol";
 import {SwapMath} from "./SwapMath.sol";
 import {BalanceDelta, toBalanceDelta} from "../types/BalanceDelta.sol";
 
@@ -58,6 +59,15 @@ library Pool {
 
     /// @notice Thrown by donate if there is currently 0 liquidity, since the fees will not go to any liquidity providers
     error NoLiquidityToReceiveFees();
+
+    /// @notice Thrown by the multi-tick donate methods if the provided amount arrays do not match in length.
+    error DonateAmountsLengthMismatch();
+
+    /// @notice Thrown by the multi-tick donate method if
+    error TooManyAmounts();
+
+    ///
+    error IncorrectLiquidity();
 
     struct Slot0 {
         // the current price
@@ -229,9 +239,7 @@ library Pool {
                         ).toInt128()
                     );
 
-                self.liquidity = params.liquidityDelta < 0
-                    ? self.liquidity - uint128(-params.liquidityDelta)
-                    : self.liquidity + uint128(params.liquidityDelta);
+                self.liquidity = UnsignedSignedMath.add(self.liquidity, params.liquidityDelta);
             } else {
                 // current tick is above the passed range; liquidity can only become in range by crossing from right to
                 // left, when we'll need _more_ currency1 (it's becoming more valuable) so user must provide it
@@ -459,6 +467,74 @@ library Pool {
         }
     }
 
+    /// @notice Donates below and up to the current tick, assigning the donated amounts to the
+    /// initialized ticks.
+    function donateBelow(
+        State storage self,
+        int24 tickNext,
+        int24 tickSpacing,
+        uint128 liquidityAtTick,
+        uint256[] memory amounts0,
+        uint256[] memory amounts1
+    ) internal returns (BalanceDelta delta) {
+        uint256 amounts0Length = amounts0.length;
+        if (amounts0Length != amounts1.length) revert DonateAmountsLengthMismatch();
+
+        bool initialized;
+        int24 tickCurrent = self.slot0.tick;
+
+        uint256 i = 0;
+
+        uint256 cumulativeFeeGrowth0x128 = 0;
+        uint256 cumulativeFeeGrowth1x128 = 0;
+
+        uint256 cumulativeAmount0 = 0;
+        uint256 cumulativeAmount1 = 0;
+
+        while (tickNext <= tickCurrent) {
+            (tickNext, initialized) = self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, false);
+            if (initialized) {
+                TickInfo storage info = self.ticks[tickNext];
+                liquidityAtTick = UnsignedSignedMath.add(liquidityAtTick, info.liquidityNet);
+
+                if (i < amounts0Length) {
+                    uint256 amount0 = amounts0[i];
+                    cumulativeAmount0 += amount0;
+                    cumulativeFeeGrowth0x128 += FullMath.mulDiv(amount0, FixedPoint128.Q128, liquidityAtTick);
+
+                    uint256 amount1 = amounts1[i];
+                    cumulativeAmount1 += amount1;
+                    cumulativeFeeGrowth1x128 += FullMath.mulDiv(amount1, FixedPoint128.Q128, liquidityAtTick);
+
+                    // forgefmt: disable-next-item
+                    unchecked { i++; }
+                }
+
+                if (cumulativeFeeGrowth0x128 > 0) {
+                    info.feeGrowthOutside0X128 += cumulativeFeeGrowth0x128;
+                }
+                if (cumulativeFeeGrowth1x128 > 0) {
+                    info.feeGrowthOutside1X128 += cumulativeFeeGrowth1x128;
+                }
+            }
+        }
+
+        // Check if we reached the current tick without having consumed all amounts.
+        if (i < amounts0Length) revert TooManyAmounts();
+
+        // Did not set the initial liquidity amount correctly for the donation
+        if (liquidityAtTick != self.liquidity) revert IncorrectLiquidity();
+
+        if (cumulativeFeeGrowth0x128 > 0) {
+            self.feeGrowthGlobal0X128 += cumulativeFeeGrowth0x128;
+        }
+        if (cumulativeFeeGrowth1x128 > 0) {
+            self.feeGrowthGlobal1X128 += cumulativeFeeGrowth1x128;
+        }
+
+        return toBalanceDelta(cumulativeAmount0.toInt128(), cumulativeAmount1.toInt128());
+    }
+
     /// @notice Donates the given amount of currency0 and currency1 to the pool
     function donate(State storage state, uint256 amount0, uint256 amount1) internal returns (BalanceDelta delta) {
         if (state.liquidity == 0) revert NoLiquidityToReceiveFees();
@@ -529,9 +605,7 @@ library Pool {
             liquidityNetBefore := shr(128, liquidity)
         }
 
-        liquidityGrossAfter = liquidityDelta < 0
-            ? liquidityGrossBefore - uint128(-liquidityDelta)
-            : liquidityGrossBefore + uint128(liquidityDelta);
+        liquidityGrossAfter = UnsignedSignedMath.add(liquidityGrossBefore, liquidityDelta);
 
         flipped = (liquidityGrossAfter == 0) != (liquidityGrossBefore == 0);
 
