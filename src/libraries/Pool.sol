@@ -528,7 +528,7 @@ library Pool {
                     info.feeGrowthOutside1X128 += cumulativeFeeGrowth1x128;
                 }
             }
-            if (below) tickNext--;
+            if (!below) tickNext--;
         }
 
         // Check if we reached the current tick without having consumed all amounts.
