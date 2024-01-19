@@ -250,6 +250,27 @@ contract PoolManager is IPoolManager, Fees, NoDelegateCall, ERC6909Claims {
     }
 
     /// @inheritdoc IPoolManager
+    function donate(
+        PoolKey memory key,
+        uint256[] calldata amounts0,
+        uint256[] calldata amounts1,
+        int24 startTick,
+        uint128 liquidityAtStart,
+        bytes calldata hookData
+    ) external override noDelegateCall onlyByLocker returns (BalanceDelta delta) {
+        // TODO: Add before hook
+
+        PoolId id = key.toId();
+        _checkPoolInitialized(id);
+
+        delta = pools[id].donate(startTick, key.tickSpacing, liquidityAtStart, amounts0, amounts1);
+
+        _accountPoolBalanceDelta(key, delta);
+
+        // TODO: Add after hook
+    }
+
+    /// @inheritdoc IPoolManager
     function donate(PoolKey memory key, uint256 amount0, uint256 amount1, bytes calldata hookData)
         external
         override

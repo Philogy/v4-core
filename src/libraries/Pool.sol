@@ -468,6 +468,17 @@ library Pool {
         }
     }
 
+    struct DonateState {
+        int24 tickCurrent;
+        bool below;
+        bool initialized;
+        uint256 amountsIndex;
+        uint256 cumulativeFeeGrowth0x128;
+        uint256 cumulativeFeeGrowth1x128;
+        uint256 cumulativeAmount0;
+        uint256 cumulativeAmount1;
+    }
+
     /// @notice Donates starting from the provided tic to the current tick, assigning the donated amounts to the
     /// initialized ticks.
     function donate(
@@ -476,75 +487,67 @@ library Pool {
         int24 tickSpacing,
         uint128 liquidityAtTick,
         uint256[] memory amounts0,
-        uint256[] memory amounts1,
-        bool below
-    ) internal returns (BalanceDelta delta) {
-        uint256 amounts0Length = amounts0.length;
-        if (amounts0Length != amounts1.length) revert DonateAmountsLengthMismatch();
+        uint256[] memory amounts1
+    ) internal returns (BalanceDelta) {
+        DonateState memory state;
 
-        int24 tickCurrent = self.slot0.tick;
-        if (below) {
-            if (tickNext < TickMath.MIN_TICK || tickNext > tickCurrent) revert TickOutOfBounds();
+        if (amounts0.length != amounts1.length) revert DonateAmountsLengthMismatch();
+
+        state.tickCurrent = self.slot0.tick;
+        state.below = tickNext <= state.tickCurrent;
+        if (state.below) {
+            if (tickNext < TickMath.MIN_TICK) revert TickOutOfBounds();
         } else {
-            if (tickNext > TickMath.MAX_TICK || tickNext < tickCurrent) revert TickOutOfBounds();
+            if (tickNext > TickMath.MAX_TICK) revert TickOutOfBounds();
         }
 
-        bool initialized;
-
-        uint256 i = 0;
-
-        uint256 cumulativeFeeGrowth0x128 = 0;
-        uint256 cumulativeFeeGrowth1x128 = 0;
-
-        uint256 cumulativeAmount0 = 0;
-        uint256 cumulativeAmount1 = 0;
-
-        while (tickNext <= tickCurrent) {
-            (tickNext, initialized) = self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, below);
-            if (initialized) {
+        while (tickNext <= state.tickCurrent) {
+            (tickNext, state.initialized) =
+                self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, state.below);
+            if (state.initialized) {
                 TickInfo storage info = self.ticks[tickNext];
                 // Interpret sign of net liquidity based on direction.
-                liquidityAtTick = below
+                liquidityAtTick = state.below
                     ? UnsignedSignedMath.add(liquidityAtTick, info.liquidityNet)
                     : UnsignedSignedMath.sub(liquidityAtTick, info.liquidityNet);
 
-                if (i < amounts0Length) {
-                    uint256 amount0 = amounts0[i];
-                    cumulativeAmount0 += amount0;
-                    cumulativeFeeGrowth0x128 += FullMath.mulDiv(amount0, FixedPoint128.Q128, liquidityAtTick);
+                if (state.amountsIndex < amounts0.length) {
+                    uint256 amount0 = amounts0[state.amountsIndex];
+                    state.cumulativeAmount0 += amount0;
+                    state.cumulativeFeeGrowth0x128 += FullMath.mulDiv(amount0, FixedPoint128.Q128, liquidityAtTick);
 
-                    uint256 amount1 = amounts1[i];
-                    cumulativeAmount1 += amount1;
-                    cumulativeFeeGrowth1x128 += FullMath.mulDiv(amount1, FixedPoint128.Q128, liquidityAtTick);
+                    uint256 amount1 = amounts1[state.amountsIndex];
+                    state.cumulativeAmount1 += amount1;
+                    state.cumulativeFeeGrowth1x128 += FullMath.mulDiv(amount1, FixedPoint128.Q128, liquidityAtTick);
 
                     // forgefmt: disable-next-item
-                    unchecked { i++; }
+                    unchecked { state.amountsIndex++; }
                 }
 
-                if (cumulativeFeeGrowth0x128 > 0) {
-                    info.feeGrowthOutside0X128 += cumulativeFeeGrowth0x128;
+                if (state.cumulativeFeeGrowth0x128 > 0) {
+                    info.feeGrowthOutside0X128 += state.cumulativeFeeGrowth0x128;
                 }
-                if (cumulativeFeeGrowth1x128 > 0) {
-                    info.feeGrowthOutside1X128 += cumulativeFeeGrowth1x128;
+                if (state.cumulativeFeeGrowth1x128 > 0) {
+                    info.feeGrowthOutside1X128 += state.cumulativeFeeGrowth1x128;
                 }
             }
-            if (!below) tickNext--;
+            if (!state.below) tickNext--;
         }
 
         // Check if we reached the current tick without having consumed all amounts.
-        if (i < amounts0Length) revert TooManyAmounts();
+        if (state.amountsIndex < amounts0.length) revert TooManyAmounts();
 
         // Did not set the initial liquidity amount correctly for the donation
         if (liquidityAtTick != self.liquidity) revert IncorrectLiquidity();
 
-        if (cumulativeFeeGrowth0x128 > 0) {
-            self.feeGrowthGlobal0X128 += cumulativeFeeGrowth0x128;
+        if (state.cumulativeFeeGrowth0x128 > 0) {
+            self.feeGrowthGlobal0X128 += state.cumulativeFeeGrowth0x128;
         }
-        if (cumulativeFeeGrowth1x128 > 0) {
-            self.feeGrowthGlobal1X128 += cumulativeFeeGrowth1x128;
+        if (state.cumulativeFeeGrowth1x128 > 0) {
+            self.feeGrowthGlobal1X128 += state.cumulativeFeeGrowth1x128;
         }
 
-        delta = toBalanceDelta(cumulativeAmount0.toInt128(), cumulativeAmount1.toInt128());
+        return toBalanceDelta(state.cumulativeAmount0.toInt128(), state.cumulativeAmount1.toInt128());
     }
 
     /// @notice Donates the given amount of currency0 and currency1 to the pool

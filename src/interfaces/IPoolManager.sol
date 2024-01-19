@@ -177,6 +177,16 @@ interface IPoolManager is IFees, IERC6909Claims {
         external
         returns (BalanceDelta);
 
+    /// @notice Donate the respective currency amounts to liquidity providers at the respective ticks in the pool with the given pool key
+    function donate(
+        PoolKey memory key,
+        uint256[] calldata amounts0,
+        uint256[] calldata amount1,
+        int24 startTick,
+        uint128 liquidityAtStart,
+        bytes calldata hookData
+    ) external returns (BalanceDelta);
+
     /// @notice Donate the given currency amounts to the pool with the given pool key
     function donate(PoolKey memory key, uint256 amount0, uint256 amount1, bytes calldata hookData)
         external
