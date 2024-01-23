@@ -486,8 +486,8 @@ library Pool {
         int24 tickNext,
         int24 tickSpacing,
         uint128 liquidityAtTick,
-        uint256[] memory amounts0,
-        uint256[] memory amounts1
+        uint256[] calldata amounts0,
+        uint256[] calldata amounts1
     ) internal returns (BalanceDelta) {
         DonateState memory state;
 

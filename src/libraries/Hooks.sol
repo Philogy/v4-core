@@ -28,6 +28,8 @@ library Hooks {
     uint256 internal constant AFTER_DONATE_FLAG = 1 << 150;
     uint256 internal constant NO_OP_FLAG = 1 << 149;
     uint256 internal constant ACCESS_LOCK_FLAG = 1 << 148;
+    uint256 internal constant BEFORE_MULTI_DONATE_FLAG = 1 << 147;
+    uint256 internal constant AFTER_MULTI_DONATE_FLAG = 1 << 146;
 
     bytes4 public constant NO_OP_SELECTOR = bytes4(keccak256(abi.encodePacked("NoOp")));
 
@@ -249,6 +251,34 @@ library Hooks {
             self.callHook(
                 abi.encodeWithSelector(IHooks.afterDonate.selector, msg.sender, key, amount0, amount1, hookData)
             );
+        }
+    }
+
+    /// @notice calls beforeMultiDonate hook if permissioned and validates return value
+    function beforeMultiDonate(
+        IHooks self,
+        PoolKey memory key,
+        IPoolManager.MultiDonateParams calldata params,
+        bytes calldata hookData
+    ) internal returns (bool shouldExecute) {
+        if (key.hooks.hasPermission(BEFORE_MULTI_DONATE_FLAG)) {
+            shouldExecute = self.callHookNoopable(
+                abi.encodeWithSelector(IHooks.beforeMultiDonate.selector, msg.sender, key, params, hookData)
+            );
+        } else {
+            return true;
+        }
+    }
+
+    /// @notice calls afterMultiDonate hook if permissioned and validates return value
+    function afterMultiDonate(
+        IHooks self,
+        PoolKey memory key,
+        IPoolManager.MultiDonateParams calldata params,
+        bytes calldata hookData
+    ) internal {
+        if (key.hooks.hasPermission(AFTER_MULTI_DONATE_FLAG)) {
+            self.callHook(abi.encodeWithSelector(IHooks.afterDonate.selector, msg.sender, key, params, hookData));
         }
     }
 

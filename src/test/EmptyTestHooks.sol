@@ -120,4 +120,18 @@ contract EmptyTestHooks is IHooks {
     {
         return IHooks.afterDonate.selector;
     }
+
+    function beforeMultiDonate(address, PoolKey calldata, IPoolManager.MultiDonateParams calldata, bytes calldata)
+        external
+        returns (bytes4)
+    {
+        return IHooks.beforeMultiDonate.selector;
+    }
+
+    function afterMultiDonate(address, PoolKey calldata, IPoolManager.MultiDonateParams calldata, bytes calldata)
+        external
+        returns (bytes4)
+    {
+        return IHooks.afterMultiDonate.selector;
+    }
 }
