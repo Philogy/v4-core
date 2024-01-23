@@ -11,7 +11,9 @@ library UnsignedSignedMath {
             // Add x and y and truncate result to 128-bits.
             z := shr(128, shl(128, add(x, y)))
 
-            // Check that no overflow or underflow occured.
+            // Check that no overflow or underflow occured. Which is detected by checking if the
+            // change in `z` relative to `x` is opposite of the direction indicated by the sign of
+            // `y`.
             if iszero(eq(gt(z, x), sgt(y, 0))) {
                 // Emit a standard overflow/underflow error (`Panic(0x11)`).
                 mstore(0x00, 0x4e487b71)
@@ -29,7 +31,9 @@ library UnsignedSignedMath {
             // Add x and y and truncate result to 128-bits.
             z := shr(128, shl(128, sub(x, y)))
 
-            // Check that no overflow or underflow occured.
+            // Check that no overflow or underflow occured. Which is detected by checking if the
+            // change in `z` relative to `x` is not in the opposite direction dictated by the sign
+            // of `y`.
             if iszero(eq(gt(z, x), slt(y, 0))) {
                 // Emit a standard overflow/underflow error (`Panic(0x11)`).
                 mstore(0x00, 0x4e487b71)
