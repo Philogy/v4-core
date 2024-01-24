@@ -23,6 +23,8 @@ contract EmptyTestHooks is IHooks {
                 afterSwap: true,
                 beforeDonate: true,
                 afterDonate: true,
+                beforeMultiDonate: true,
+                afterMultiDonate: true,
                 noOp: true,
                 accessLock: true
             })
