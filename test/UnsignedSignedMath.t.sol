@@ -4,30 +4,36 @@ pragma solidity ^0.8.19;
 import {Test} from "forge-std/Test.sol";
 import {UnsignedSignedMath} from "../src/libraries/UnsignedSignedMath.sol";
 import {Numbers} from "./utils/Numbers.sol";
+import {stdError} from "forge-std/StdError.sol";
 import {console2 as console} from "forge-std/console2.sol";
 
-contract FullMathTest is Test, Numbers {
+contract UnsignedSignedMathTest is Test, Numbers {
     using UnsignedSignedMath for uint128;
 
     function test_addOverflow() public {
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        vm.expectRevert(stdError.arithmeticError);
         (type(uint128).max).add(1);
     }
 
     function test_addUnderflow() public {
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        vm.expectRevert(stdError.arithmeticError);
         (type(uint128).min).add(-1);
     }
 
     function test_subOverflow() public {
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        vm.expectRevert(stdError.arithmeticError);
         (type(uint128).min).sub(1);
     }
 
     function test_subUnderflow() public {
-        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        vm.expectRevert(stdError.arithmeticError);
         (type(uint128).max).sub(-1);
     }
+    /**
+     * 25% => 1.8^2        => 3.24
+     *     50% => 1.8 * 0.5    => 0.9      => 1.3225
+     *     25% => 0.5^2        => 0.25
+     */
 
     function test_validAdd(uint128 x, int128 y) public {
         int256 xAsSigned256 = int256(uint256(x));
