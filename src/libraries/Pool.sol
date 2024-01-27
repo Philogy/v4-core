@@ -12,7 +12,19 @@ import {UnsignedSignedMath} from "./UnsignedSignedMath.sol";
 import {SwapMath} from "./SwapMath.sol";
 import {BalanceDelta, toBalanceDelta} from "../types/BalanceDelta.sol";
 
+import {console2 as console} from "forge-std/console2.sol";
+import {LibString} from "solmate/utils/LibString.sol";
+import {FormatLib} from "./FormatLib.sol";
+
 library Pool {
+    using LibString for int256;
+    using LibString for int24;
+    using FormatLib for uint256;
+    using FormatLib for int256;
+    using FormatLib for int24;
+    using FormatLib for uint128;
+
+    using UnsignedSignedMath for uint128;
     using SafeCast for *;
     using TickBitmap for mapping(int16 => uint256);
     using Position for mapping(bytes32 => Position.Info);
@@ -204,6 +216,8 @@ library Pool {
             (feesOwed0, feesOwed1) = self.positions.get(params.owner, params.tickLower, params.tickUpper).update(
                 params.liquidityDelta, state.feeGrowthInside0X128, state.feeGrowthInside1X128
             );
+            console.log("feesOwed.0: %s", feesOwed0.formatDecimals(18, 3));
+            console.log("feesOwed.1: %s", feesOwed1.formatDecimals(18, 3));
 
             // clear any tick data that is no longer needed
             if (params.liquidityDelta < 0) {
@@ -427,9 +441,7 @@ library Pool {
                         if (params.zeroForOne) liquidityNet = -liquidityNet;
                     }
 
-                    state.liquidity = liquidityNet < 0
-                        ? state.liquidity - uint128(-liquidityNet)
-                        : state.liquidity + uint128(liquidityNet);
+                    state.liquidity = state.liquidity.add(liquidityNet);
                 }
 
                 unchecked {
@@ -497,21 +509,11 @@ library Pool {
         state.below = tickNext <= state.tickCurrent;
         if (state.below) {
             if (tickNext < TickMath.MIN_TICK) revert TickOutOfBounds();
-        } else {
-            if (tickNext > TickMath.MAX_TICK) revert TickOutOfBounds();
-        }
 
-        while (tickNext <= state.tickCurrent) {
-            (tickNext, state.initialized) =
-                self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, state.below);
-            if (state.initialized) {
-                TickInfo storage info = self.ticks[tickNext];
-                // Interpret sign of net liquidity based on direction.
-                liquidityAtTick = state.below
-                    ? UnsignedSignedMath.add(liquidityAtTick, info.liquidityNet)
-                    : UnsignedSignedMath.sub(liquidityAtTick, info.liquidityNet);
+            state.initialized = true;
 
-                if (state.amountsIndex < amounts0.length) {
+            while (true) {
+                if (state.initialized && state.amountsIndex < amounts0.length) {
                     uint256 amount0 = amounts0[state.amountsIndex];
                     state.cumulativeAmount0 += amount0;
                     state.cumulativeFeeGrowth0x128 += FullMath.mulDiv(amount0, FixedPoint128.Q128, liquidityAtTick);
@@ -524,14 +526,54 @@ library Pool {
                     unchecked { state.amountsIndex++; }
                 }
 
-                if (state.cumulativeFeeGrowth0x128 > 0) {
-                    info.feeGrowthOutside0X128 += state.cumulativeFeeGrowth0x128;
-                }
-                if (state.cumulativeFeeGrowth1x128 > 0) {
-                    info.feeGrowthOutside1X128 += state.cumulativeFeeGrowth1x128;
+                (tickNext, state.initialized) =
+                    self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, false);
+
+                if (tickNext > state.tickCurrent) break;
+
+                if (state.initialized) {
+                    TickInfo storage info = self.ticks[tickNext];
+                    liquidityAtTick = liquidityAtTick.add(info.liquidityNet);
+                    if (state.cumulativeFeeGrowth0x128 > 0) {
+                        info.feeGrowthOutside0X128 += state.cumulativeFeeGrowth0x128;
+                    }
+                    if (state.cumulativeFeeGrowth1x128 > 0) {
+                        info.feeGrowthOutside1X128 += state.cumulativeFeeGrowth1x128;
+                    }
                 }
             }
-            if (!state.below) tickNext--;
+        } else {
+            if (tickNext > TickMath.MAX_TICK) revert TickOutOfBounds();
+
+            while (true) {
+                (tickNext, state.initialized) =
+                    self.tickBitmap.nextInitializedTickWithinOneWord(tickNext, tickSpacing, false);
+
+                if (tickNext <= state.tickCurrent) break;
+
+                if (state.initialized) {
+                    if (state.amountsIndex < amounts0.length) {
+                        uint256 amount0 = amounts0[state.amountsIndex];
+                        state.cumulativeAmount0 += amount0;
+                        state.cumulativeFeeGrowth0x128 += FullMath.mulDiv(amount0, FixedPoint128.Q128, liquidityAtTick);
+
+                        uint256 amount1 = amounts1[state.amountsIndex];
+                        state.cumulativeAmount1 += amount1;
+                        state.cumulativeFeeGrowth1x128 += FullMath.mulDiv(amount1, FixedPoint128.Q128, liquidityAtTick);
+
+                        // forgefmt: disable-next-item
+                        unchecked { state.amountsIndex++; }
+                    }
+                    TickInfo storage info = self.ticks[tickNext];
+                    liquidityAtTick = liquidityAtTick.sub(info.liquidityNet);
+                    if (state.cumulativeFeeGrowth0x128 > 0) {
+                        info.feeGrowthOutside0X128 += state.cumulativeFeeGrowth0x128;
+                    }
+                    if (state.cumulativeFeeGrowth1x128 > 0) {
+                        info.feeGrowthOutside1X128 += state.cumulativeFeeGrowth1x128;
+                    }
+                }
+            }
         }
 
         // Check if we reached the current tick without having consumed all amounts.

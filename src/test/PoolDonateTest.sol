@@ -10,10 +10,15 @@ import {PoolTestBase} from "./PoolTestBase.sol";
 import {Test} from "forge-std/Test.sol";
 import {IHooks} from "../interfaces/IHooks.sol";
 import {Hooks} from "../libraries/Hooks.sol";
+import {PoolKey} from "../types/PoolKey.sol";
+import {PoolIdLibrary, PoolId} from "../types/PoolId.sol";
+import {UnsignedSignedMath} from "../libraries/UnsignedSignedMath.sol";
 
 contract PoolDonateTest is PoolTestBase, Test {
+    using PoolIdLibrary for PoolKey;
     using CurrencyLibrary for Currency;
     using Hooks for IHooks;
+    using UnsignedSignedMath for uint128;
 
     constructor(IPoolManager _manager) PoolTestBase(_manager) {}
 
@@ -66,7 +71,7 @@ contract PoolDonateTest is PoolTestBase, Test {
         delta = abi.decode(
             manager.lock(
                 address(this),
-                abi.encode(SingleOrMultiDonate(DonateType.Single, msg.sender, key, hookData, abi.encode(params)))
+                abi.encode(SingleOrMultiDonate(DonateType.Multi, msg.sender, key, hookData, abi.encode(params)))
             ),
             (BalanceDelta)
         );
@@ -108,7 +113,7 @@ contract PoolDonateTest is PoolTestBase, Test {
             }
             delta = manager.donate(key, params, data.hookData);
         } else {
-            emit log_named_uint("Error: unrecognized DonateType, id:", uint8(data.donateType));
+            emit log_named_uint("Error: unrecognized DonateType, id", uint8(data.donateType));
             fail();
         }
 

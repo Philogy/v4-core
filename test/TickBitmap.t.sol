@@ -289,8 +289,7 @@ contract TickBitmapTest is Test, GasSnapshot {
     }
 
     function isInitialized(int24 tick) internal view returns (bool) {
-        (int24 next, bool initialized) = bitmap.nextInitializedTickWithinOneWord(tick, 1, true);
-        return next == tick ? initialized : false;
+        return bitmap.tickInitialized(tick, 1);
     }
 
     function flipTick(int24 tick) internal {
